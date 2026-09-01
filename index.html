@@ -900,19 +900,23 @@ function openSettings(m){
     try{ out=await deriveKaminoBasis(cfg.sol,kaminoRegistry(),function(i,n,name){
       st.textContent='Reading '+(i+1)+' of '+n+' \u2014 '+name; }); }
     catch(e){ st.textContent='Could not read it: '+String(e.message||e); return; }
-    var exact=0,est=0,warn=[];
+    var exact=0,est=0,warn=[],changed=[];
     Object.keys(out).forEach(function(id){
       var r=out[id]; if(!r||!(r.cost>0))return;
       var inp=f.querySelector('[data-id="'+id+'"]');
       if(!inp)return;
-      inp.value=Math.round(r.cost);
+      var was=Number(String(inp.value).replace(/[$,\s]/g,''));
+      var now=Math.round(r.cost);
+      if(isFinite(was)&&was>0&&Math.abs(now-was)/was>0.1)changed.push(r.name+': '+usd(was,0)+' \u2192 '+usd(now,0));
+      inp.value=now;
       if(r.method==='kamino')exact++; else { est++; if(r.openingBalance)warn.push(r.name); }
     });
     if(!exact&&!est){ st.textContent='Nothing came back \u2014 no Kamino history for this wallet.'; return; }
     var msg='Filled <b>'+(exact+est)+'</b> position'+((exact+est)===1?'':'s')+'. ';
-    if(exact)msg+=exact+' from Kamino\u2019s own deposit accounting (exact). ';
+    if(exact)msg+=exact+' from Kamino\u2019s own deposit accounting. ';
     if(est)msg+=est+' rebuilt from daily balance history, because Kamino reports no basis for '+(est===1?'it':'them')+'. ';
     if(warn.length)msg+='<br>Treat '+esc(warn.join(', '))+' as approximate: the history opens with a balance already in place, so the first deposit is priced on the day the record starts rather than the day you actually bought. ';
+    if(changed.length)msg+='<br><b>Moved by more than 10% from what you had:</b> '+esc(changed.join(' \u00b7 '))+'. Kamino\u2019s reported basis is not always stable, so keep your own figure if you trust it more. ';
     msg+='<br>Edit anything that looks wrong, then Save &amp; reload.';
     st.innerHTML=msg;
   };
