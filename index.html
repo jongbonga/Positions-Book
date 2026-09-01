@@ -386,6 +386,53 @@ async function loadKamino(wallet){
   return out;
 }
 
+/* ---------------- cost basis from Kamino history ---------------- */
+function kaminoRegistry(){
+  return KAMINO_REGISTRY.concat((cfg.extraKamino||[]).map(function(a){
+    return typeof a==='string'?{addr:a,name:a.slice(0,6)+'…',curator:'',style:'',token:'',group:'other'}:a;}));
+}
+async function deriveKaminoBasis(wallet,vaults,onProgress){
+  var endT=new Date().toISOString(), startT=new Date(Date.now()-3*365*86400000).toISOString();
+  var res={};
+  for(var i=0;i<vaults.length;i++){
+    var v=vaults[i];
+    if(onProgress)onProgress(i,vaults.length,v.name);
+    var base='https://api.kamino.finance/kvaults/'+v.addr+'/users/'+wallet;
+    var hist=null,pnl=null;
+    try{ hist=await jget(base+'/metrics/history?start='+encodeURIComponent(startT)+'&end='+encodeURIComponent(endT)); }catch(e){}
+    try{ pnl=await jget(base+'/pnl'); }catch(e){}
+    var last=(hist&&hist.length)?hist[hist.length-1]:null;
+    var value=last?Number(last.usdAmount):null;
+    if(!(value>0.5))continue;
+    var walk=hist?walkKaminoHistory(hist):null;
+    var reported=(pnl&&pnl.totalCostBasis)?Number(pnl.totalCostBasis.usd):NaN;
+    var ratio=(isFinite(reported)&&reported>0)?reported/value:0;
+    var pick=null,method=null;
+    if(ratio>0.2&&ratio<5){ pick=reported; method='kamino'; }
+    else if(walk&&walk.cost>0){ pick=walk.cost; method='history'; }
+    if(pick==null)continue;
+    res['kamino:'+v.addr]={cost:pick,method:method,name:v.name,value:value,
+      deposits:walk?walk.deposits:null,withdrawals:walk?walk.withdrawals:null,
+      since:walk?walk.since:null,openingBalance:walk?walk.openingBalance:false};
+  }
+  return res;
+}
+function walkKaminoHistory(h){
+  var cost=0,shares=0,dep=0,wd=0,first=null,opening=false;
+  for(var k=0;k<h.length;k++){
+    var p=h[k], sh=Number(p.sharesAmount), usd=Number(p.usdAmount);
+    if(!isFinite(sh)||!isFinite(usd))continue;
+    var pps=sh>0?usd/sh:0;
+    if(first===null){ first=p.createdOn; if(sh>0){cost=usd;shares=sh;dep=1;opening=true;} continue; }
+    if(shares<=0){ if(sh>0){cost+=sh*pps;shares=sh;dep++;} continue; }
+    var rel=(sh-shares)/shares;
+    if(rel>0.0005){ cost+=(sh-shares)*pps; dep++; }
+    else if(rel<-0.0005){ cost*=sh/shares; wd++; }
+    shares=sh;
+  }
+  return (shares>0&&cost>0)?{cost:cost,deposits:dep,withdrawals:wd,since:first,openingBalance:opening}:null;
+}
+
 /* ---------------- Beefy ---------------- */
 async function loadBeefy(wallet,forceScan){
   var lists=await Promise.all([
@@ -822,6 +869,9 @@ function openSettings(m){
     '<div class="field"><label>Extra Kamino vault addresses (one per line)</label><textarea id="c_extra" style="min-height:70px">'+esc((cfg.extraKamino||[]).map(function(v){return typeof v==='string'?v:v.addr;}).join('\n'))+'</textarea></div>'+
     '<div class="field"><label>Cost basis</label><div class="basis-grid">'+rows+'</div></div>'+
     '<div class="field"><label>Backup / restore (JSON)</label><textarea id="c_json">'+esc(JSON.stringify({sol:cfg.sol,bnb:cfg.bnb,basis:cfg.basis,extraKamino:cfg.extraKamino},null,1))+'</textarea></div>'+
+    '<div class="bar"><button type="button" id="c_derive">Estimate Kamino cost basis</button></div>'+
+    '<p class="muted" id="c_status">Reads your Kamino deposit history and fills the fields above. '+
+      'Beefy cannot be derived — its own indexer is unreachable from a browser and public BNB Chain nodes refuse historical queries, so those stay manual.</p>'+
     '<div class="bar"><button class="primary" id="c_save" value="save">Save &amp; reload</button>'+
     '<button id="c_close" value="cancel">Cancel</button>'+
     '<button id="c_rescan" value="rescan">Rescan Beefy vaults</button>'+
@@ -841,6 +891,30 @@ function openSettings(m){
       var v=i.value.replace(/[$,\s]/g,''); var id=i.getAttribute('data-id');
       if(v===''){delete cfg.basis[id];} else if(isFinite(Number(v))){cfg.basis[id]=Number(v);} }); }
     saveCfg(cfg); setTimeout(function(){run(true);},0);
+  };
+  f.querySelector('#c_derive').onclick=async function(){
+    var st=f.querySelector('#c_status');
+    if(!cfg.sol){ st.textContent='Add your Solana address first \u2014 there is nothing to read without it.'; return; }
+    st.textContent='Reading Kamino cost basis\u2026';
+    var out;
+    try{ out=await deriveKaminoBasis(cfg.sol,kaminoRegistry(),function(i,n,name){
+      st.textContent='Reading '+(i+1)+' of '+n+' \u2014 '+name; }); }
+    catch(e){ st.textContent='Could not read it: '+String(e.message||e); return; }
+    var exact=0,est=0,warn=[];
+    Object.keys(out).forEach(function(id){
+      var r=out[id]; if(!r||!(r.cost>0))return;
+      var inp=f.querySelector('[data-id="'+id+'"]');
+      if(!inp)return;
+      inp.value=Math.round(r.cost);
+      if(r.method==='kamino')exact++; else { est++; if(r.openingBalance)warn.push(r.name); }
+    });
+    if(!exact&&!est){ st.textContent='Nothing came back \u2014 no Kamino history for this wallet.'; return; }
+    var msg='Filled <b>'+(exact+est)+'</b> position'+((exact+est)===1?'':'s')+'. ';
+    if(exact)msg+=exact+' from Kamino\u2019s own deposit accounting (exact). ';
+    if(est)msg+=est+' rebuilt from daily balance history, because Kamino reports no basis for '+(est===1?'it':'them')+'. ';
+    if(warn.length)msg+='<br>Treat '+esc(warn.join(', '))+' as approximate: the history opens with a balance already in place, so the first deposit is priced on the day the record starts rather than the day you actually bought. ';
+    msg+='<br>Edit anything that looks wrong, then Save &amp; reload.';
+    st.innerHTML=msg;
   };
   f.querySelector('#c_rescan').onclick=function(){cfg.beefyIds=null;saveCfg(cfg);setTimeout(function(){run(true);},0);};
   f.querySelector('#c_wipe').onclick=function(){ try{localStorage.removeItem(CFG_KEY);}catch(e){} cfg={sol:'',bnb:'',basis:{},extraKamino:[],beefyIds:null}; setTimeout(function(){renderSetup();},0); };
