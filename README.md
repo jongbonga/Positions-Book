@@ -20,6 +20,6 @@ Open the page and paste a Solana address, a BNB Chain address, or both. Settings
 
 ## Currency
 
-Values are shown in USD, EUR or ZAR — pick one from the dropdown next to Refresh. Conversion rates come from `api.frankfurter.app` (ECB reference rates, refreshed on every page load); cost basis is still always entered and stored in USD.
+Values are shown in USD, EUR or ZAR — pick one from the dropdown next to Refresh. Conversion rates come from `api.frankfurter.dev` (ECB reference rates, refreshed on every page load); cost basis is still always entered and stored in USD. EUR/ZAR are disabled if that fetch fails — a warning banner explains why and Refresh retries it.
 
 Read-only position tracking built on public data. Not investment advice.
