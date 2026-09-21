@@ -300,7 +300,7 @@ var RPCS=['https://bsc.publicnode.com','https://bsc-dataseed1.defibit.io','https
 var STABLES={USDT:1,USDC:1,PYUSD:1,USDG:1,BUSD:1,DAI:1,FDUSD:1,USD1:1};
 var CURRENCIES={USD:{sym:'$'},EUR:{sym:'€'},ZAR:{sym:'R'}};
 var FX_KEY='twowallets.fx.v1';
-var fxRates={EUR:null,ZAR:null,when:null};
+var fxRates={EUR:null,ZAR:null,when:null,error:null};
 
 function loadCfg(){
   var raw=null; try{raw=localStorage.getItem(CFG_KEY);}catch(e){}
@@ -314,10 +314,10 @@ function saveFx(){ try{localStorage.setItem(FX_KEY,JSON.stringify(fxRates));}cat
 loadFx();
 async function refreshFx(){
   try{
-    var j=await jget('https://api.frankfurter.app/latest?from=USD&to=EUR,ZAR');
-    fxRates={EUR:j.rates.EUR,ZAR:j.rates.ZAR,when:Date.now()};
+    var j=await jget('https://api.frankfurter.dev/v1/latest?from=USD&to=EUR,ZAR');
+    fxRates={EUR:j.rates.EUR,ZAR:j.rates.ZAR,when:Date.now(),error:null};
     saveFx();
-  }catch(e){ /* keep whatever was cached */ }
+  }catch(e){ fxRates.error=String(e.message||e); /* keep whatever rates were cached */ }
 }
 
 /* ---------------- helpers ---------------- */
@@ -620,8 +620,9 @@ function renderSetup(msg){
 function curSelect(){
   var cur=cfg.currency||'USD';
   var opts=Object.keys(CURRENCIES).map(function(c){
-    var disabled=(c!=='USD'&&fxRates[c]==null)?' disabled':'';
-    return '<option value="'+c+'"'+(c===cur?' selected':'')+disabled+'>'+CURRENCIES[c].sym+' '+c+'</option>';
+    var unavailable=c!=='USD'&&fxRates[c]==null;
+    var title=unavailable?' title="Exchange rate unavailable — could not reach api.frankfurter.dev"':'';
+    return '<option value="'+c+'"'+(c===cur?' selected':'')+(unavailable?' disabled':'')+title+'>'+CURRENCIES[c].sym+' '+c+'</option>';
   }).join('');
   return '<select id="curSel" data-tip="Display currency">'+opts+'</select>';
 }
@@ -838,6 +839,7 @@ function render(m,meta){
 
   if(m.errs.length)html+='<div class="warnbox"><b>Partial read.</b> '+esc(m.errs.map(function(e){return e.name+' ('+e.error+')';}).join('; '))+'. Everything below excludes those.</div>';
   if(!m.haveBasis)html+='<div class="warnbox"><b>No cost basis stored yet.</b> Values and yields below are live; gain columns stay blank until you enter what each position cost in Settings.</div>';
+  if(fxRates.error&&(fxRates.EUR==null||fxRates.ZAR==null))html+='<div class="warnbox"><b>Exchange rates unavailable.</b> Could not reach api.frankfurter.dev ('+esc(fxRates.error)+'), so EUR/ZAR are disabled in the currency dropdown until a fetch succeeds. Hit Refresh to try again.</div>';
 
   html+='<div class="tiles">'+
     tile('Book value',usd(m.total,0),'Kamino '+usd(kamV,0)+' · Beefy '+usd(beeV,0))+
