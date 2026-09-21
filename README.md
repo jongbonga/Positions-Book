@@ -1,4 +1,4 @@
-# Positions Book
+# Positions
 A single static page that reads two wallets and prices them as one book: Kamino vaults on Solana and Beefy concentrated-liquidity vaults on BNB Chain.
 
 Everything runs in the browser. No backend, no build step, no dependencies - one `index.html`.
@@ -17,5 +17,9 @@ Your two wallet addresses and your per-position cost basis live in this browser'
 ## Use
 
 Open the page and paste a Solana address, a BNB Chain address, or both. Settings holds the cost basis fields, an extra-vault list for Kamino, a Beefy rescan and JSON backup/restore.
+
+## Currency
+
+Values are shown in USD, EUR or ZAR — pick one from the dropdown next to Refresh. Conversion rates come from `api.frankfurter.app` (ECB reference rates, refreshed on every page load); cost basis is still always entered and stored in USD.
 
 Read-only position tracking built on public data. Not investment advice.

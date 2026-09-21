@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Two Wallets, One Book</title>
+<title>Positions</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -247,7 +247,7 @@ tr.sub td:first-child{font-size:12.5px;color:var(--ink-2)}
 
 /* ---------- live-page additions ---------- */
 .bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}
-button,.btn{font:inherit;font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);cursor:pointer}
+button,.btn,select{font:inherit;font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);cursor:pointer}
 button:hover{background:var(--surface-2)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.primary:hover{filter:brightness(1.08)}
@@ -298,24 +298,39 @@ var KAMINO_REGISTRY=[
 ];
 var RPCS=['https://bsc.publicnode.com','https://bsc-dataseed1.defibit.io','https://bsc-rpc.publicnode.com'];
 var STABLES={USDT:1,USDC:1,PYUSD:1,USDG:1,BUSD:1,DAI:1,FDUSD:1,USD1:1};
+var CURRENCIES={USD:{sym:'$'},EUR:{sym:'€'},ZAR:{sym:'R'}};
+var FX_KEY='twowallets.fx.v1';
+var fxRates={EUR:null,ZAR:null,when:null};
 
 function loadCfg(){
   var raw=null; try{raw=localStorage.getItem(CFG_KEY);}catch(e){}
   var c=raw?JSON.parse(raw):{};
-  return {sol:c.sol||'',bnb:c.bnb||'',basis:c.basis||{},extraKamino:c.extraKamino||[],beefyIds:c.beefyIds||null};
+  return {sol:c.sol||'',bnb:c.bnb||'',basis:c.basis||{},extraKamino:c.extraKamino||[],beefyIds:c.beefyIds||null,currency:CURRENCIES[c.currency]?c.currency:'USD'};
 }
 function saveCfg(c){ try{localStorage.setItem(CFG_KEY,JSON.stringify(c));}catch(e){} }
 var cfg=loadCfg();
+function loadFx(){ try{var raw=localStorage.getItem(FX_KEY); if(raw)fxRates=JSON.parse(raw);}catch(e){} }
+function saveFx(){ try{localStorage.setItem(FX_KEY,JSON.stringify(fxRates));}catch(e){} }
+loadFx();
+async function refreshFx(){
+  try{
+    var j=await jget('https://api.frankfurter.app/latest?from=USD&to=EUR,ZAR');
+    fxRates={EUR:j.rates.EUR,ZAR:j.rates.ZAR,when:Date.now()};
+    saveFx();
+  }catch(e){ /* keep whatever was cached */ }
+}
 
 /* ---------------- helpers ---------------- */
 var app=document.getElementById('app');
 function el(h){var d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild;}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function curSym(){ return CURRENCIES[cfg.currency||'USD'].sym; }
+function curRate(){ var c=cfg.currency||'USD'; return c==='USD'?1:(fxRates[c]||1); }
 function usd(n,dp){ if(n==null||!isFinite(n))return '—';
-  var s=Math.abs(n)>=1000||dp===0?Math.round(n).toLocaleString('en-US'):Math.abs(n).toFixed(dp==null?2:dp);
-  if(Math.abs(n)>=1000||dp===0)s=Math.abs(Math.round(n)).toLocaleString('en-US');
-  return (n<0?'−$':'$')+s; }
-function sgn(n){ if(n==null||!isFinite(n))return '—'; return (n>=0?'+':'−')+'$'+Math.abs(Math.round(n)).toLocaleString('en-US'); }
+  n=n*curRate();
+  var s=(Math.abs(n)>=1000||dp===0)?Math.abs(Math.round(n)).toLocaleString('en-US'):Math.abs(n).toFixed(dp==null?2:dp);
+  return (n<0?'−'+curSym():curSym())+s; }
+function sgn(n){ if(n==null||!isFinite(n))return '—'; n=n*curRate(); return (n>=0?'+':'−')+curSym()+Math.abs(Math.round(n)).toLocaleString('en-US'); }
 function pct(n,dp){ if(n==null||!isFinite(n))return '—'; return (n>=0?'+':'−')+Math.abs(n).toFixed(dp==null?2:dp)+'%'; }
 function num(n,dp){ if(n==null||!isFinite(n))return '—'; return n.toLocaleString('en-US',{minimumFractionDigits:dp==null?2:dp,maximumFractionDigits:dp==null?2:dp}); }
 function sig(n){ if(n==null||!isFinite(n))return '—';
@@ -579,7 +594,7 @@ function renderSetup(msg){
   app.innerHTML='';
   app.appendChild(el('<div class="setup">'+
     '<div class="eyebrow">First run</div>'+
-    '<h2>Two wallets, one book</h2>'+
+    '<h2>Positions</h2>'+
     '<p class="lede">Paste the two addresses this page should read. They are stored in this browser only — never in the repository, never sent anywhere except the Kamino API and a public BNB Chain RPC node.</p>'+
     (msg?'<div class="err">'+esc(msg)+'</div>':'')+
     '<div class="field"><label>Solana wallet (Kamino)</label><input id="s_sol" placeholder="2g7t…" value="'+esc(cfg.sol)+'"></div>'+
@@ -600,6 +615,15 @@ function renderSetup(msg){
       catch(e){ return renderSetup('That JSON did not parse: '+e.message); } }
     cfg.beefyIds=null; saveCfg(cfg); run();
   };
+}
+
+function curSelect(){
+  var cur=cfg.currency||'USD';
+  var opts=Object.keys(CURRENCIES).map(function(c){
+    var disabled=(c!=='USD'&&fxRates[c]==null)?' disabled':'';
+    return '<option value="'+c+'"'+(c===cur?' selected':'')+disabled+'>'+CURRENCIES[c].sym+' '+c+'</option>';
+  }).join('');
+  return '<select id="curSel" data-tip="Display currency">'+opts+'</select>';
 }
 
 function tile(k,v,n,hl,c){
@@ -794,20 +818,22 @@ function section(title,eyebrow,lede,body){
     (lede?'<p class="lede">'+lede+'</p>':'')+body+'</section>';
 }
 
+var lastM=null,lastMeta=null;
 function render(m,meta){
+  lastM=m; lastMeta=meta;
   var gTot=m.haveBasis?(m.total-m.cost):null;
   var kam=m.groups.sol.concat(m.groups.stable), bee=m.groups.beefy;
   var kamV=m.sum(kam,function(p){return p.value;}), beeV=m.sum(bee,function(p){return p.value;});
   var html='';
   html+='<header>'+
     '<div class="eyebrow">Live position review</div>'+
-    '<h1>Two wallets, one book</h1>'+
+    '<h1>Positions</h1>'+
     '<p class="sub">'+m.pos.length+' positions across Kamino on Solana and Beefy on BNB Chain, priced together — read live from both chains every time this page loads.</p>'+
     '<div class="stamp">'+
       (cfg.sol?'<span>Solana <b class="num">'+esc(shortAddr(cfg.sol))+'</b></span>':'')+
       (cfg.bnb?'<span>BNB Chain <b class="num">'+esc(shortAddr(cfg.bnb))+'</b></span>':'')+
       '<span>Read <b>'+esc(meta.when)+'</b></span>'+
-      '<span><button id="btnRefresh">Refresh</button> <button id="btnCfg">Settings</button></span>'+
+      '<span>'+curSelect()+' <button id="btnRefresh">Refresh</button> <button id="btnCfg">Settings</button></span>'+
     '</div></header>';
 
   if(m.errs.length)html+='<div class="warnbox"><b>Partial read.</b> '+esc(m.errs.map(function(e){return e.name+' ('+e.error+')';}).join('; '))+'. Everything below excludes those.</div>';
@@ -840,6 +866,9 @@ function render(m,meta){
   app.innerHTML=html;
   document.getElementById('btnRefresh').onclick=function(){run(true);};
   document.getElementById('btnCfg').onclick=function(){openSettings(m);};
+  document.getElementById('curSel').onchange=function(e){
+    cfg.currency=e.target.value; saveCfg(cfg); render(lastM,lastMeta);
+  };
   wireTips();
 }
 
@@ -867,7 +896,7 @@ function openSettings(m){
     '<div class="field" style="margin-top:16px"><label>Solana wallet</label><input id="c_sol" value="'+esc(cfg.sol)+'"></div>'+
     '<div class="field"><label>BNB Chain wallet</label><input id="c_bnb" value="'+esc(cfg.bnb)+'"></div>'+
     '<div class="field"><label>Extra Kamino vault addresses (one per line)</label><textarea id="c_extra" style="min-height:70px">'+esc((cfg.extraKamino||[]).map(function(v){return typeof v==='string'?v:v.addr;}).join('\n'))+'</textarea></div>'+
-    '<div class="field"><label>Cost basis</label><div class="basis-grid">'+rows+'</div></div>'+
+    '<div class="field"><label>Cost basis (USD, regardless of display currency)</label><div class="basis-grid">'+rows+'</div></div>'+
     '<div class="field"><label>Backup / restore (JSON)</label><textarea id="c_json">'+esc(JSON.stringify({sol:cfg.sol,bnb:cfg.bnb,basis:cfg.basis,extraKamino:cfg.extraKamino},null,1))+'</textarea></div>'+
     '<div class="bar"><button type="button" id="c_derive">Estimate Kamino cost basis</button></div>'+
     '<p class="muted" id="c_status">Reads your Kamino deposit history and fills the fields above. '+
@@ -929,7 +958,7 @@ async function run(){
   if(!cfg.sol&&!cfg.bnb)return renderSetup();
   app.innerHTML='<div class="state"><span class="spin"></span>Reading Kamino and Beefy…</div>';
   var kam=[],bee=[];
-  var jobs=[];
+  var jobs=[refreshFx()];
   if(cfg.sol)jobs.push(loadKamino(cfg.sol).then(function(r){kam=r;}).catch(function(e){kam=[{id:'kamino',error:String(e.message||e),name:'Kamino',venue:'Kamino'}];}));
   if(cfg.bnb)jobs.push(loadBeefy(cfg.bnb).then(function(r){bee=r;}).catch(function(e){bee=[{id:'beefy',error:String(e.message||e),name:'Beefy',venue:'Beefy'}];}));
   await Promise.all(jobs);
