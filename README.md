@@ -8,11 +8,13 @@ Everything runs in the browser. No backend, no build step, no dependencies - one
 - **Kamino** - `api.kamino.finance` for per-vault user metrics (shares, value, token amount) and vault APY.
 - **Beefy** - vault, reward-pool and CLM registries plus LP prices from `api.beefy.finance`, then live share balances, pool composition and range bounds read straight from the contracts through a public BNB Chain RPC.
 
-Nothing is cached: a reload re-reads both chains.
+Positions themselves are never cached: a reload re-reads both chains.
 
 ## What it stores
 
 Your two wallet addresses and your per-position cost basis live in this browser's `localStorage` and nowhere else. They are not in this repository, and the page has no server to send them to. Cost basis cannot be derived from any public API, so gain columns stay blank until you enter it under Settings.
+
+The page also keeps one book-value reading per day, taken locally whenever you load the page, so it can chart value over time — see [Value history](#value-history) below.
 
 ## Use
 
@@ -21,5 +23,9 @@ Open the page and paste a Solana address, a BNB Chain address, or both. Settings
 ## Currency
 
 Values are shown in USD, EUR or ZAR — pick one from the dropdown next to Refresh. Conversion rates come from `api.frankfurter.dev` (ECB reference rates, refreshed on every page load); cost basis is still always entered and stored in USD. EUR/ZAR are disabled if that fetch fails — a warning banner explains why and Refresh retries it.
+
+## Value history
+
+Every time the page loads, it records one reading of your total book value (and cost basis, if you've entered one) for the day, kept in `localStorage` alongside everything else. The "Book value over time" chart plots those readings as they build up — there's no way to backfill history from before you started using this page, and the chart says so until it has at least two readings. Clear it any time from Settings without touching your wallets or cost basis.
 
 Read-only position tracking built on public data. Not investment advice.
