@@ -14,7 +14,7 @@ Positions themselves are never cached: a reload re-reads both chains.
 
 Your two wallet addresses and your per-position cost basis live in this browser's `localStorage` and nowhere else. They are not in this repository, and the page has no server to send them to. Cost basis cannot be derived from any public API, so gain columns stay blank until you enter it under Settings.
 
-The page also keeps one book-value reading per day, taken locally whenever you load the page, so it can chart value over time — see [Value history](#value-history) below.
+The page also keeps a local book-value reading each time you load it (at most one a minute), so it can chart value over time — see [Value history](#value-history) below.
 
 ## Use
 
@@ -26,6 +26,6 @@ Values are shown in USD, EUR or ZAR — pick one from the dropdown next to Refre
 
 ## Value history
 
-Every time the page loads, it records one reading of your total book value (and cost basis, if you've entered one) for the day, kept in `localStorage` alongside everything else. The "Book value over time" chart plots those readings as they build up — there's no way to backfill history from before you started using this page, and the chart says so until it has at least two readings. Clear it any time from Settings without touching your wallets or cost basis.
+Every time the page loads, it records one reading of your total book value (and cost basis, if you've entered one), kept in `localStorage` alongside everything else — reloads less than a minute apart collapse into a single reading so mashing refresh doesn't flood it, but otherwise every load counts, up to 2,000 stored readings. The "Book value over time" chart plots those readings as they build up — there's no way to backfill history from before you started using this page, and the chart says so until it has at least two readings. Clear it any time from Settings without touching your wallets or cost basis.
 
 Read-only position tracking built on public data. Not investment advice.
