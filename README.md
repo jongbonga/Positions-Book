@@ -26,6 +26,6 @@ Values are shown in USD, EUR or ZAR — pick one from the dropdown next to Refre
 
 ## Value history
 
-Every time the page loads, it records one reading of your total book value (and cost basis, if you've entered one), kept in `localStorage` alongside everything else — reloads less than a minute apart collapse into a single reading so mashing refresh doesn't flood it, but otherwise every load counts, up to 2,000 stored readings. The "Book value over time" chart plots those readings as they build up — there's no way to backfill history from before you started using this page, and the chart says so until it has at least two readings. Clear it any time from Settings without touching your wallets or cost basis.
+Every time the page loads, it records one reading of your total book value (and cost basis, if you've entered one), kept in `localStorage` alongside everything else — reloads less than a minute apart collapse into a single reading so mashing refresh doesn't flood it, but otherwise every load counts, up to 2,000 stored readings. The "Book value over time" chart plots those readings as they build up, with a 3D / 7D / All toggle to zoom the window (it remembers your choice); there's no way to backfill history from before you started using this page, and the chart says so until it has at least two readings in the selected range. Clear the history any time from Settings without touching your wallets or cost basis.
 
 Read-only position tracking built on public data. Not investment advice.

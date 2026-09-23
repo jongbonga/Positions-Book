@@ -188,6 +188,12 @@ details[open] summary{margin-bottom:12px}
 .hc-val{font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:600;fill:var(--accent)}
 .hc-hit{fill:transparent;cursor:default}
 .hc-hit:hover{fill:color-mix(in srgb,var(--accent) 16%,transparent)}
+.hc-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.hc-range{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;flex:none}
+.hc-range button{font:inherit;font-size:11.5px;font-weight:500;padding:5px 11px;border:0;background:var(--surface);color:var(--ink-2);cursor:pointer}
+.hc-range button+button{border-left:1px solid var(--border-strong)}
+.hc-range button.on{background:var(--accent);color:#fff}
+.hc-range button:hover:not(.on){background:var(--surface-2)}
 
 /* ---------- diverging paired bars ---------- */
 .dv{display:grid;grid-template-columns:150px 1fr;column-gap:14px;row-gap:14px;align-items:center}
@@ -307,13 +313,14 @@ var KAMINO_REGISTRY=[
 var RPCS=['https://bsc.publicnode.com','https://bsc-dataseed1.defibit.io','https://bsc-rpc.publicnode.com'];
 var STABLES={USDT:1,USDC:1,PYUSD:1,USDG:1,BUSD:1,DAI:1,FDUSD:1,USD1:1};
 var CURRENCIES={USD:{sym:'$'},EUR:{sym:'€'},ZAR:{sym:'R'}};
+var HIST_RANGES={'3d':{label:'3D',days:3},'7d':{label:'7D',days:7},all:{label:'All',days:null}};
 var FX_KEY='twowallets.fx.v1';
 var fxRates={EUR:null,ZAR:null,when:null,error:null};
 
 function loadCfg(){
   var raw=null; try{raw=localStorage.getItem(CFG_KEY);}catch(e){}
   var c=raw?JSON.parse(raw):{};
-  return {sol:c.sol||'',bnb:c.bnb||'',basis:c.basis||{},extraKamino:c.extraKamino||[],beefyIds:c.beefyIds||null,currency:CURRENCIES[c.currency]?c.currency:'USD'};
+  return {sol:c.sol||'',bnb:c.bnb||'',basis:c.basis||{},extraKamino:c.extraKamino||[],beefyIds:c.beefyIds||null,currency:CURRENCIES[c.currency]?c.currency:'USD',histRange:HIST_RANGES[c.histRange]?c.histRange:'7d'};
 }
 function saveCfg(c){ try{localStorage.setItem(CFG_KEY,JSON.stringify(c));}catch(e){} }
 var cfg=loadCfg();
@@ -668,10 +675,24 @@ function fmtWhen(t,withTime){
     d.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
 }
 
+function historyRangeToggle(cur){
+  return '<div class="hc-range">'+Object.keys(HIST_RANGES).map(function(k){
+    return '<button type="button" class="rangeBtn'+(k===cur?' on':'')+'" data-range="'+k+'">'+HIST_RANGES[k].label+'</button>';
+  }).join('')+'</div>';
+}
+
 function historyChart(){
-  var pts=valueHist;
+  var range=HIST_RANGES[cfg.histRange]?cfg.histRange:'7d';
+  var days=HIST_RANGES[range].days;
+  var cutoff=days?Date.now()-days*86400000:0;
+  var all=valueHist;
+  var pts=cutoff?all.filter(function(p){return p.t>=cutoff;}):all;
+  var toggle=historyRangeToggle(range);
+  if(all.length<2){
+    return '<div class="card">'+toggle+'<p class="lede" style="margin:14px 0 0">Tracking starts now — this chart fills in from your book value each time you load this page, stored only in this browser. Reload once more in a minute to see it grow.</p></div>';
+  }
   if(pts.length<2){
-    return '<div class="card"><p class="lede" style="margin:0">Tracking starts now — this chart fills in from your book value each time you load this page, stored only in this browser. Reload once more in a minute to see it grow.</p></div>';
+    return '<div class="card">'+toggle+'<p class="lede" style="margin:14px 0 0">No readings in the last '+esc(HIST_RANGES[range].label)+' — try a wider range.</p></div>';
   }
   var axisWithTime=(pts[pts.length-1].t-pts[0].t)<2*86400000;
   var hasCost=pts.some(function(p){return p.cost!=null;});
@@ -707,7 +728,7 @@ function historyChart(){
   var last=totalPts[totalPts.length-1];
   var endLabel='<circle cx="'+last[0].toFixed(1)+'" cy="'+last[1].toFixed(1)+'" r="4" style="fill:var(--accent);stroke:var(--surface);stroke-width:2"></circle>'+
     '<text x="'+Math.min(last[0]+8,W-padR-4).toFixed(1)+'" y="'+Math.max(last[1]-8,padT+10).toFixed(1)+'" text-anchor="'+(last[0]>W-padR-70?'end':'start')+'" class="hc-val">'+esc(usd(pts[pts.length-1].total,0))+'</text>';
-  var legend=hasCost?'<ul class="legend"><li><span class="sw" style="background:var(--accent)"></span>Book value</li><li><span class="sw" style="background:var(--ink-3)"></span>Cost deployed</li></ul>':'';
+  var legend=hasCost?'<ul class="legend" style="margin:0"><li><span class="sw" style="background:var(--accent)"></span>Book value</li><li><span class="sw" style="background:var(--ink-3)"></span>Cost deployed</li></ul>':'<span></span>';
   var svg='<svg viewBox="0 0 '+W+' '+H+'" class="hc-svg" preserveAspectRatio="none" role="img" aria-label="Book value over time">'+
     gridlines+
     (hasCost?'<path d="'+costPath+'" fill="none" style="stroke:var(--ink-3);stroke-width:2;stroke-dasharray:4 3" stroke-linecap="round"/>':'')+
@@ -716,7 +737,7 @@ function historyChart(){
     ylabels+endLabel+
     '<g>'+hits+'</g>'+
   '</svg>';
-  return '<div class="card">'+legend+'<div class="hc-wrap">'+svg+'</div>'+
+  return '<div class="card"><div class="hc-head">'+legend+toggle+'</div><div class="hc-wrap">'+svg+'</div>'+
     '<div class="dv-ax"><span>'+esc(fmtWhen(pts[0].t,axisWithTime))+'</span><span>'+esc(fmtWhen(pts[pts.length-1].t,axisWithTime))+'</span></div></div>';
 }
 
@@ -963,6 +984,9 @@ function render(m,meta){
   document.getElementById('curSel').onchange=function(e){
     cfg.currency=e.target.value; saveCfg(cfg); render(lastM,lastMeta);
   };
+  document.querySelectorAll('.rangeBtn').forEach(function(btn){
+    btn.onclick=function(){ cfg.histRange=btn.getAttribute('data-range'); saveCfg(cfg); render(lastM,lastMeta); };
+  });
   wireTips();
 }
 
