@@ -316,6 +316,44 @@ var FX_KEY='twowallets.fx.v1';
 var fxRates={EUR:null,ZAR:null,when:null,error:null};
 
 var DEFAULT_SOL='2g7tpN82cLArTuTXaobFg4mGJbZajWnXdbLYGtXnR7Ng';
+var DEFAULT_BNB='0xE9DDA820583e9926342439F7E342b45B31A1F4B2';
+var DEFAULT_BASIS={
+  'kamino:5YxwKgsvyTdT8q2CBgwA4L9BKbnKNrB66K9wUzij5wH':14080.45,
+  'kamino:A1so1bPD3W1TfeFwboDh8yfAAVaVtcdAYBYCjhg2mJQ':10792.27,
+  'kamino:A2wsxhA7pF4B2UKVfXocb6TAAP9ipfPJam6oMKgDE5BK':15837.73,
+  'kamino:DJbRxuBckoJpFVUNtWx94NghcthfGaRV5NRmEazUaddE':14944.64,
+  'kamino:BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5':8739.91,
+  'kamino:A1USdzqDHmw5oz97AkqAGLxEQZfFjASZFuy4T6Qdvnpo':14300.05,
+  'kamino:EPC2N3AAv84P9TKsnDt2x41p6T7c5vTewBhQbh4RVx4r':312.50,
+  'beefy:thena-cow-btcb-wbnb-rp':34739,
+  'beefy:pancake-cow-bsc-xpl-usdt-rp':2390,
+  'beefy:pancake-cow-bsc-aster-usdt-rp':909,
+  'beefy:pancake-cow-bsc-doge-wbnb-vault':319
+};
+
+function canonicalBasis(basis){
+  var out={};
+  Object.keys(basis||{}).forEach(function(k){
+    var v=basis[k]; if(!isFinite(Number(v)))return;
+    var nk=k;
+    if(/^kamino:/i.test(k)){
+      var addr=k.slice(7).toLowerCase();
+      var match=KAMINO_REGISTRY.find(function(r){return String(r.addr).toLowerCase()===addr;});
+      if(match) nk='kamino:'+match.addr;
+    }
+    out[nk]=Number(v);
+  });
+  return out;
+}
+function basisValue(id){
+  if(cfg.basis&&cfg.basis[id]!=null&&isFinite(Number(cfg.basis[id]))) return Number(cfg.basis[id]);
+  if(/^kamino:/i.test(id)){
+    var a=id.slice(7).toLowerCase();
+    var k=Object.keys(cfg.basis||{}).find(function(x){return /^kamino:/i.test(x)&&x.slice(7).toLowerCase()===a;});
+    if(k!=null&&isFinite(Number(cfg.basis[k]))) return Number(cfg.basis[k]);
+  }
+  return null;
+}
 var SOL_SPOT_URL='https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true';
 var solSpot={price:null,change24:null,when:null,error:null};
 
@@ -323,11 +361,18 @@ var solSpot={price:null,change24:null,when:null,error:null};
 function loadCfg(){
   var raw=null; try{raw=localStorage.getItem(CFG_KEY);}catch(e){}
   var c=raw?JSON.parse(raw):{};
-  return {sol:c.sol||'',bnb:c.bnb||'',basis:c.basis||{},extraKamino:c.extraKamino||[],beefyIds:c.beefyIds||null,currency:CURRENCIES[c.currency]?c.currency:'USD'};
+  return {
+    sol:c.sol||DEFAULT_SOL,
+    bnb:c.bnb||DEFAULT_BNB,
+    basis:canonicalBasis(Object.assign({},DEFAULT_BASIS,c.basis||{})),
+    extraKamino:c.extraKamino||[],
+    beefyIds:c.beefyIds||null,
+    currency:CURRENCIES[c.currency]?c.currency:'USD'
+  };
 }
 function saveCfg(c){ try{localStorage.setItem(CFG_KEY,JSON.stringify(c));}catch(e){} }
 var cfg=loadCfg();
-if(!cfg.sol && !cfg.bnb) cfg.sol=DEFAULT_SOL;
+saveCfg(cfg);
 function loadFx(){ try{var raw=localStorage.getItem(FX_KEY); if(raw)fxRates=JSON.parse(raw);}catch(e){} }
 function saveFx(){ try{localStorage.setItem(FX_KEY,JSON.stringify(fxRates));}catch(e){} }
 loadFx();
@@ -533,7 +578,7 @@ function build(kam,bee){
   var pos=kam.filter(function(p){return !p.error;}).concat(bee.filter(function(p){return !p.error;}));
   var errs=kam.concat(bee).filter(function(p){return p.error;});
   pos.forEach(function(p){
-    var c=cfg.basis[p.id];
+    var c=basisValue(p.id);
     p.cost=(c!=null&&isFinite(c))?Number(c):null;
     p.gain=(p.cost!=null&&p.value!=null)?p.value-p.cost:null;
     p.gainPct=(p.cost>0&&p.gain!=null)?p.gain/p.cost*100:null;
@@ -596,7 +641,7 @@ function renderSetup(msg){
     if(sol&&!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(sol))return renderSetup('That Solana address does not look like a base58 public key.');
     if(!sol&&!bnb)return renderSetup('Give me at least one of the two addresses.');
     cfg.sol=sol;cfg.bnb=bnb;
-    if(js){ try{var o=JSON.parse(js); if(o.basis)cfg.basis=o.basis; if(o.sol)cfg.sol=o.sol; if(o.bnb)cfg.bnb=o.bnb; if(o.extraKamino)cfg.extraKamino=o.extraKamino; }
+    if(js){ try{var o=JSON.parse(js); if(o.basis)cfg.basis=canonicalBasis(o.basis); if(o.sol)cfg.sol=o.sol; if(o.bnb)cfg.bnb=o.bnb; if(o.extraKamino)cfg.extraKamino=o.extraKamino; }
       catch(e){ return renderSetup('That JSON did not parse: '+e.message); } }
     cfg.beefyIds=null; saveCfg(cfg); run();
   };
@@ -824,6 +869,8 @@ function render(m,meta){
     '</div></header>';
 
   if(m.errs.length)html+='<div class="warnbox"><b>Partial read.</b> '+esc(m.errs.map(function(e){return e.name+' ('+e.error+')';}).join('; '))+'. Everything below excludes those.</div>';
+  var missingBasis=m.pos.filter(function(p){return p.cost==null;});
+  if(missingBasis.length)html+='<div class="warnbox"><b>Incomplete P&amp;L basis.</b> '+missingBasis.length+' live position'+(missingBasis.length===1?' is':'s are')+' missing cost basis: '+esc(missingBasis.map(function(p){return p.name;}).join(', '))+'. Net position excludes only those missing costs.</div>';
   if(!m.haveBasis)html+='<div class="warnbox"><b>No cost basis stored yet.</b> Values and yields below are live; gain columns stay blank until you enter what each position cost in Settings.</div>';
   if(fxRates.error&&(fxRates.EUR==null||fxRates.ZAR==null))html+='<div class="warnbox"><b>Exchange rates unavailable.</b> Could not reach api.frankfurter.dev ('+esc(fxRates.error)+'), so EUR/ZAR are disabled in the currency dropdown until a fetch succeeds. Hit Refresh to try again.</div>';
 
@@ -876,7 +923,7 @@ function openSettings(m){
   var dlg=document.getElementById('settings'), f=document.getElementById('settingsForm');
   var rows=m.pos.map(function(p){
     return '<div class="lbl">'+esc(p.name)+'<br><span class="muted">'+esc(p.venue)+' · now '+usd(p.value,0)+'</span></div>'+
-      '<input data-id="'+esc(p.id)+'" value="'+(cfg.basis[p.id]!=null?esc(cfg.basis[p.id]):'')+'" placeholder="cost $">';
+      '<input data-id="'+esc(p.id)+'" value="'+(basisValue(p.id)!=null?esc(basisValue(p.id)):'')+'" placeholder="cost $">';
   }).join('');
   f.innerHTML='<h2>Settings</h2>'+
     '<p class="muted">Everything here stays in this browser.</p>'+
@@ -898,12 +945,13 @@ function openSettings(m){
     var js=f.querySelector('#c_json').value.trim(), applied=false;
     try{ var o=JSON.parse(js);
       if(o&&(o.basis||o.sol||o.bnb)&&js!==JSON.stringify({sol:cfg.sol,bnb:cfg.bnb,basis:cfg.basis,extraKamino:cfg.extraKamino},null,1)){
-        if(o.sol)cfg.sol=o.sol; if(o.bnb)cfg.bnb=o.bnb; if(o.basis)cfg.basis=o.basis;
+        if(o.sol)cfg.sol=o.sol; if(o.bnb)cfg.bnb=o.bnb; if(o.basis)cfg.basis=canonicalBasis(o.basis);
         if(o.extraKamino)cfg.extraKamino=o.extraKamino; applied=true; }
     }catch(e){}
     if(!applied){ f.querySelectorAll('[data-id]').forEach(function(i){
       var v=i.value.replace(/[$,\s]/g,''); var id=i.getAttribute('data-id');
       if(v===''){delete cfg.basis[id];} else if(isFinite(Number(v))){cfg.basis[id]=Number(v);} }); }
+    cfg.basis=canonicalBasis(cfg.basis);
     saveCfg(cfg); setTimeout(function(){run(true);},0);
   };
   f.querySelector('#c_rescan').onclick=function(){cfg.beefyIds=null;saveCfg(cfg);setTimeout(function(){run(true);},0);};
