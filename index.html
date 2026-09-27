@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Positions</title>
+<title>Positions — Live Kamino Review</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -259,6 +259,17 @@ tr.sub td:first-child{font-size:12.5px;color:var(--ink-2)}
   .bandnum{grid-column:2;text-align:left}
 }
 
+
+/* ---------- current snapshot ---------- */
+.snapshot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px}
+.snap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:15px 16px 13px}
+.snap .k{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+.snap .v{font-family:"IBM Plex Mono",monospace;font-size:23px;font-weight:600;line-height:1.12;margin-top:6px}
+.snap .n{font-size:12px;color:var(--ink-2);margin-top:5px}
+.snap.good{border-color:color-mix(in srgb,var(--good) 35%,var(--border));background:color-mix(in srgb,var(--good) 5%,var(--surface))}
+.snap.warn{border-color:color-mix(in srgb,var(--warn) 38%,var(--border));background:color-mix(in srgb,var(--warn) 5%,var(--surface))}
+.snap.crit{border-color:color-mix(in srgb,var(--crit) 38%,var(--border));background:color-mix(in srgb,var(--crit) 5%,var(--surface))}
+.snapshot-note{margin-top:10px;color:var(--ink-3);font-size:11.5px}
 /* ---------- live-page additions ---------- */
 .bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}
 button,.btn,select{font:inherit;font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);cursor:pointer}
@@ -319,6 +330,25 @@ var HIST_RANGES={'3d':{label:'3D',days:3},'7d':{label:'7D',days:7},all:{label:'A
 var FX_KEY='twowallets.fx.v1';
 var fxRates={EUR:null,ZAR:null,when:null,error:null};
 
+var DEFAULT_SOL='2g7tpN82cLArTuTXaobFg4mGJbZajWnXdbLYGtXnR7Ng';
+var SOL_SPOT_URL='https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true';
+var solSpot={price:null,change24:null,when:null,error:null};
+
+var SNAPSHOT={
+  asOf:'27 Sep 2026',
+  originalSol:390.12,
+  soldSol:117.8108,
+  saleUsdc:14300.05,
+  salePrice:121.38,
+  currentSol:273.15,
+  currentSolValue:33820,
+  stablecoins:54843.65,
+  visibleTotal:88663.65,
+  yuLoss:-25498.97,
+  yuBurned:37871.674037,
+  yuConditionalRedemption:37871.67
+};
+
 function loadCfg(){
   var raw=null; try{raw=localStorage.getItem(CFG_KEY);}catch(e){}
   var c=raw?JSON.parse(raw):{};
@@ -326,6 +356,7 @@ function loadCfg(){
 }
 function saveCfg(c){ try{localStorage.setItem(CFG_KEY,JSON.stringify(c));}catch(e){} }
 var cfg=loadCfg();
+if(!cfg.sol && !cfg.bnb) cfg.sol=DEFAULT_SOL;
 function loadFx(){ try{var raw=localStorage.getItem(FX_KEY); if(raw)fxRates=JSON.parse(raw);}catch(e){} }
 function saveFx(){ try{localStorage.setItem(FX_KEY,JSON.stringify(fxRates));}catch(e){} }
 loadFx();
@@ -335,6 +366,17 @@ async function refreshFx(){
     fxRates={EUR:j.rates.EUR,ZAR:j.rates.ZAR,when:Date.now(),error:null};
     saveFx();
   }catch(e){ fxRates.error=String(e.message||e); /* keep whatever rates were cached */ }
+}
+
+async function loadSolSpot(){
+  try{
+    var j=await jget(SOL_SPOT_URL);
+    var s=j&&j.solana;
+    if(!s||!isFinite(Number(s.usd)))throw new Error('spot response missing SOL/USD');
+    solSpot={price:Number(s.usd),change24:isFinite(Number(s.usd_24h_change))?Number(s.usd_24h_change):null,when:Date.now(),error:null};
+  }catch(e){
+    solSpot.error=String(e.message||e);
+  }
 }
 
 /* ---------------- value history ---------------- */
@@ -683,6 +725,27 @@ function historyRangeToggle(cur){
   }).join('')+'</div>';
 }
 
+function currentSnapshot(){
+  var livePrice=solSpot.price!=null?usd(solSpot.price,2):usd(SNAPSHOT.currentSolValue/SNAPSHOT.currentSol,2);
+  var liveNote=solSpot.price!=null
+    ? 'Live SOL/USD · '+(solSpot.change24!=null?(solSpot.change24>=0?'+':'')+solSpot.change24.toFixed(1)+'% 24h':'24h change unavailable')
+    : 'Screenshot baseline · '+esc(SNAPSHOT.asOf);
+
+  var remaining=SNAPSHOT.currentSol/SNAPSHOT.originalSol*100;
+  var soldPct=SNAPSHOT.soldSol/SNAPSHOT.originalSol*100;
+  return '<div class="card">'+
+    '<div class="snapshot-grid">'+
+      '<div class="snap good"><div class="k">SOL spot</div><div class="v">'+livePrice+'</div><div class="n">'+liveNote+'</div></div>'+
+      '<div class="snap"><div class="k">Current SOL</div><div class="v">'+num(SNAPSHOT.currentSol,2)+' SOL</div><div class="n">'+remaining.toFixed(1)+'% of original '+num(SNAPSHOT.originalSol,2)+' SOL</div></div>'+
+      '<div class="snap"><div class="k">Stablecoins</div><div class="v">'+usd(SNAPSHOT.stablecoins,0)+'</div><div class="n">Screenshot baseline</div></div>'+
+      '<div class="snap"><div class="k">Visible total</div><div class="v">'+usd(SNAPSHOT.visibleTotal,0)+'</div><div class="n">SOL + stablecoins</div></div>'+
+      '<div class="snap warn"><div class="k">Sep 25 SOL sale</div><div class="v">−'+num(SNAPSHOT.soldSol,4)+' SOL</div><div class="n">→ '+usd(SNAPSHOT.saleUsdc,0)+' USDC @ ~$'+SNAPSHOT.salePrice.toFixed(2)+'/SOL · '+soldPct.toFixed(1)+'% of original</div></div>'+
+      '<div class="snap crit"><div class="k">YU historical loss</div><div class="v">'+sgn(SNAPSHOT.yuLoss)+'</div><div class="n">'+num(SNAPSHOT.yuBurned,6)+' YU burned · redemption is not counted as received</div></div>'+
+    '</div>'+
+    '<div class="snapshot-note"><b>Snapshot context:</b> current position figures are a dated baseline from your Sep 27 Kamino screenshot; the page still reads live Kamino values on every reload. The YU figure is a historical loss marker from the DeFi export, not a current Kamino Lend position.</div>'+
+  '</div>';
+}
+
 function historyChart(){
   var range=HIST_RANGES[cfg.histRange]?cfg.histRange:'7d';
   var days=HIST_RANGES[range].days;
@@ -946,6 +1009,7 @@ function render(m,meta){
       (cfg.sol?'<span>Solana <b class="num">'+esc(shortAddr(cfg.sol))+'</b></span>':'')+
       (cfg.bnb?'<span>BNB Chain <b class="num">'+esc(shortAddr(cfg.bnb))+'</b></span>':'')+
       '<span>Read <b>'+esc(meta.when)+'</b></span>'+
+      (solSpot.price!=null?'<span>SOL <b class="num">'+esc('$'+solSpot.price.toFixed(2))+'</b></span>':'')+
       '<span>'+curSelect()+' <button id="btnRefresh">Refresh</button> <button id="btnCfg">Settings</button></span>'+
     '</div></header>';
 
@@ -1080,7 +1144,7 @@ async function run(){
   if(!cfg.sol&&!cfg.bnb)return renderSetup();
   app.innerHTML='<div class="state"><span class="spin"></span>Reading Kamino and Beefy…</div>';
   var kam=[],bee=[];
-  var jobs=[refreshFx()];
+  var jobs=[refreshFx(),loadSolSpot()];
   if(cfg.sol)jobs.push(loadKamino(cfg.sol).then(function(r){kam=r;}).catch(function(e){kam=[{id:'kamino',error:String(e.message||e),name:'Kamino',venue:'Kamino'}];}));
   if(cfg.bnb)jobs.push(loadBeefy(cfg.bnb).then(function(r){bee=r;}).catch(function(e){bee=[{id:'beefy',error:String(e.message||e),name:'Beefy',venue:'Beefy'}];}));
   await Promise.all(jobs);
