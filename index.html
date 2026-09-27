@@ -181,20 +181,6 @@ details[open] summary{margin-bottom:12px}
 .gain{background:var(--good)} .loss{background:var(--crit)} .netb{background:var(--accent)}
 .tgain{color:var(--good)} .tloss{color:var(--crit)} .tnet{color:var(--accent)}
 
-/* ---------- value history chart ---------- */
-.hc-wrap{width:100%}
-.hc-svg{width:100%;height:auto;display:block;overflow:visible}
-.hc-axis{font-family:"IBM Plex Mono",monospace;font-size:10px;fill:var(--ink-3)}
-.hc-val{font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:600;fill:var(--accent)}
-.hc-hit{fill:transparent;cursor:default}
-.hc-hit:hover{fill:color-mix(in srgb,var(--accent) 16%,transparent)}
-.hc-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px}
-.hc-range{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;flex:none}
-.hc-range button{font:inherit;font-size:11.5px;font-weight:500;padding:5px 11px;border:0;background:var(--surface);color:var(--ink-2);cursor:pointer}
-.hc-range button+button{border-left:1px solid var(--border-strong)}
-.hc-range button.on{background:var(--accent);color:#fff}
-.hc-range button:hover:not(.on){background:var(--surface-2)}
-
 /* ---------- diverging paired bars ---------- */
 .dv{display:grid;grid-template-columns:150px 1fr;column-gap:14px;row-gap:14px;align-items:center}
 .dv-track{position:relative;height:38px}
@@ -326,7 +312,6 @@ var KAMINO_REGISTRY=[
 var RPCS=['https://bsc.publicnode.com','https://bsc-dataseed1.defibit.io','https://bsc-rpc.publicnode.com'];
 var STABLES={USDT:1,USDC:1,PYUSD:1,USDG:1,BUSD:1,DAI:1,FDUSD:1,USD1:1};
 var CURRENCIES={USD:{sym:'$'},EUR:{sym:'€'},ZAR:{sym:'R'}};
-var HIST_RANGES={'3d':{label:'3D',days:3},'7d':{label:'7D',days:7},all:{label:'All',days:null}};
 var FX_KEY='twowallets.fx.v1';
 var fxRates={EUR:null,ZAR:null,when:null,error:null};
 
@@ -334,25 +319,11 @@ var DEFAULT_SOL='2g7tpN82cLArTuTXaobFg4mGJbZajWnXdbLYGtXnR7Ng';
 var SOL_SPOT_URL='https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true';
 var solSpot={price:null,change24:null,when:null,error:null};
 
-var SNAPSHOT={
-  asOf:'27 Sep 2026',
-  originalSol:390.12,
-  soldSol:117.8108,
-  saleUsdc:14300.05,
-  salePrice:121.38,
-  currentSol:273.15,
-  currentSolValue:33820,
-  stablecoins:54843.65,
-  visibleTotal:88663.65,
-  yuLoss:-25498.97,
-  yuBurned:37871.674037,
-  yuConditionalRedemption:37871.67
-};
 
 function loadCfg(){
   var raw=null; try{raw=localStorage.getItem(CFG_KEY);}catch(e){}
   var c=raw?JSON.parse(raw):{};
-  return {sol:c.sol||'',bnb:c.bnb||'',basis:c.basis||{},extraKamino:c.extraKamino||[],beefyIds:c.beefyIds||null,currency:CURRENCIES[c.currency]?c.currency:'USD',histRange:HIST_RANGES[c.histRange]?c.histRange:'7d'};
+  return {sol:c.sol||'',bnb:c.bnb||'',basis:c.basis||{},extraKamino:c.extraKamino||[],beefyIds:c.beefyIds||null,currency:CURRENCIES[c.currency]?c.currency:'USD'};
 }
 function saveCfg(c){ try{localStorage.setItem(CFG_KEY,JSON.stringify(c));}catch(e){} }
 var cfg=loadCfg();
@@ -377,29 +348,6 @@ async function loadSolSpot(){
   }catch(e){
     solSpot.error=String(e.message||e);
   }
-}
-
-/* ---------------- value history ---------------- */
-var HIST_KEY='twowallets.hist.v1';
-var HIST_MAX=2000;
-var HIST_MIN_GAP_MS=60000;
-function loadHist(){
-  try{
-    var raw=localStorage.getItem(HIST_KEY); var h=raw?JSON.parse(raw):[];
-    h.forEach(function(p){ if(p.t==null&&p.day)p.t=new Date(p.day+'T12:00:00').getTime(); });
-    return h;
-  }catch(e){return [];}
-}
-function saveHist(h){ try{localStorage.setItem(HIST_KEY,JSON.stringify(h));}catch(e){} }
-var valueHist=loadHist();
-function recordSnapshot(m){
-  if(!(m.total>0))return;
-  var now=Date.now();
-  var point={t:now,total:m.total,cost:m.haveBasis?m.cost:null};
-  if(valueHist.length&&(now-valueHist[valueHist.length-1].t)<HIST_MIN_GAP_MS) valueHist[valueHist.length-1]=point;
-  else valueHist.push(point);
-  if(valueHist.length>HIST_MAX) valueHist=valueHist.slice(valueHist.length-HIST_MAX);
-  saveHist(valueHist);
 }
 
 /* ---------------- helpers ---------------- */
@@ -452,82 +400,37 @@ var SEL={balanceOf:'0x70a08231',totalSupply:'0x18160ddd',balances:'0x7bb98a68',w
 
 /* ---------------- Kamino ---------------- */
 async function loadKamino(wallet){
+  /*
+   * Current-only Kamino data.
+   * The portfolio endpoint returns live source rows across Kamino products;
+   * unlike metrics/history it cannot resurrect an exited vault position.
+   * We use the Earn rows for KVaults and map known vaults to the local registry.
+   */
   var reg=KAMINO_REGISTRY.concat((cfg.extraKamino||[]).map(function(a){
-    return typeof a==='string'?{addr:a,name:a.slice(0,6)+'…',curator:'',style:'',token:'',group:'other'}:a;}));
-  var end=new Date().toISOString();
-  var start=new Date(Date.now()-6*3600*1000).toISOString();
-  var out=[];
-  await Promise.all(reg.map(async function(v){
-    try{
-      var m=await jget('https://api.kamino.finance/kvaults/'+v.addr+'/metrics');
-      var h=await jget('https://api.kamino.finance/kvaults/'+v.addr+'/users/'+wallet+'/metrics/history?start='+encodeURIComponent(start)+'&end='+encodeURIComponent(end));
-      if(!h.length){
-        var s2=new Date(Date.now()-30*86400000).toISOString();
-        h=await jget('https://api.kamino.finance/kvaults/'+v.addr+'/users/'+wallet+'/metrics/history?start='+encodeURIComponent(s2)+'&end='+encodeURIComponent(end));
-      }
-      var last=h[h.length-1];
-      if(!last)return;
-      var value=Number(last.usdAmount);
-      if(!(value>0.5))return;
-      var price=Number(m.tokenPrice);
-      out.push({
-        id:'kamino:'+v.addr, venue:'Kamino', chain:'Solana', meta:v, group:v.group,
-        name:v.name, sub:(v.curator||'')+(v.style?'':''), style:v.style, curator:v.curator,
-        token:v.token||'', tokenAmount:price?value/price:null, tokenPrice:price,
-        shares:Number(last.sharesAmount), value:value,
-        apy:Number(m.apy), asOf:last.createdOn,
-        earned:Number(last.cumulativeInterestEarnedUsd||0)
-      });
-    }catch(e){ out.push({id:'kamino:'+v.addr,error:String(e.message||e),name:v.name,venue:'Kamino'}); }
+    return typeof a==='string'?{addr:a,name:a.slice(0,6)+'…',curator:'',style:'',token:'',group:'other'}:a;
   }));
+  var byAddr={}; reg.forEach(function(v){byAddr[v.addr]=v;});
+  var j=await jget('https://api.kamino.finance/portfolio/'+wallet);
+  var rows=Array.isArray(j.earn)?j.earn:[];
+  var out=[];
+  rows.forEach(function(r){
+    var value=Number(r.netValue!=null?r.netValue:r.value);
+    if(!(value>0.5))return;
+    var meta=byAddr[r.vault]||null;
+    var token=r.symbol||((meta&&meta.token)||'');
+    var group=(meta&&meta.group)?meta.group:(STABLES[token]?'stable':(token==='SOL'?'sol':'other'));
+    out.push({
+      id:'kamino:'+(r.vault||r.tokenMint||r.symbol), venue:'Kamino', chain:'Solana', meta:meta,
+      group:group, name:(meta&&meta.name)||r.name||shortAddr(r.vault),
+      sub:(meta&&meta.curator)||'', style:(meta&&meta.style)||'', curator:(meta&&meta.curator)||'',
+      token:token, tokenAmount:r.amount!=null?Number(r.amount):null,
+      tokenPrice:(r.amount!=null&&Number(r.amount)>0)?value/Number(r.amount):null,
+      shares:r.shares!=null?Number(r.shares):null, value:value,
+      apy:null, asOf:j.timestamp||null, earned:null,
+      current:true, vault:r.vault||null, tokenMint:r.tokenMint||null
+    });
+  });
   return out;
-}
-
-/* ---------------- cost basis from Kamino history ---------------- */
-function kaminoRegistry(){
-  return KAMINO_REGISTRY.concat((cfg.extraKamino||[]).map(function(a){
-    return typeof a==='string'?{addr:a,name:a.slice(0,6)+'…',curator:'',style:'',token:'',group:'other'}:a;}));
-}
-async function deriveKaminoBasis(wallet,vaults,onProgress){
-  var endT=new Date().toISOString(), startT=new Date(Date.now()-3*365*86400000).toISOString();
-  var res={};
-  for(var i=0;i<vaults.length;i++){
-    var v=vaults[i];
-    if(onProgress)onProgress(i,vaults.length,v.name);
-    var base='https://api.kamino.finance/kvaults/'+v.addr+'/users/'+wallet;
-    var hist=null,pnl=null;
-    try{ hist=await jget(base+'/metrics/history?start='+encodeURIComponent(startT)+'&end='+encodeURIComponent(endT)); }catch(e){}
-    try{ pnl=await jget(base+'/pnl'); }catch(e){}
-    var last=(hist&&hist.length)?hist[hist.length-1]:null;
-    var value=last?Number(last.usdAmount):null;
-    if(!(value>0.5))continue;
-    var walk=hist?walkKaminoHistory(hist):null;
-    var reported=(pnl&&pnl.totalCostBasis)?Number(pnl.totalCostBasis.usd):NaN;
-    var ratio=(isFinite(reported)&&reported>0)?reported/value:0;
-    var pick=null,method=null;
-    if(ratio>0.2&&ratio<5){ pick=reported; method='kamino'; }
-    else if(walk&&walk.cost>0){ pick=walk.cost; method='history'; }
-    if(pick==null)continue;
-    res['kamino:'+v.addr]={cost:pick,method:method,name:v.name,value:value,
-      deposits:walk?walk.deposits:null,withdrawals:walk?walk.withdrawals:null,
-      since:walk?walk.since:null,openingBalance:walk?walk.openingBalance:false};
-  }
-  return res;
-}
-function walkKaminoHistory(h){
-  var cost=0,shares=0,dep=0,wd=0,first=null,opening=false;
-  for(var k=0;k<h.length;k++){
-    var p=h[k], sh=Number(p.sharesAmount), usd=Number(p.usdAmount);
-    if(!isFinite(sh)||!isFinite(usd))continue;
-    var pps=sh>0?usd/sh:0;
-    if(first===null){ first=p.createdOn; if(sh>0){cost=usd;shares=sh;dep=1;opening=true;} continue; }
-    if(shares<=0){ if(sh>0){cost+=sh*pps;shares=sh;dep++;} continue; }
-    var rel=(sh-shares)/shares;
-    if(rel>0.0005){ cost+=(sh-shares)*pps; dep++; }
-    else if(rel<-0.0005){ cost*=sh/shares; wd++; }
-    shares=sh;
-  }
-  return (shares>0&&cost>0)?{cost:cost,deposits:dep,withdrawals:wd,since:first,openingBalance:opening}:null;
 }
 
 /* ---------------- Beefy ---------------- */
@@ -711,99 +614,6 @@ function curSelect(){
 
 function tile(k,v,n,hl,c){
   return '<div class="tile'+(hl?' hl':'')+'"><div class="k">'+esc(k)+'</div><div class="v'+(c?' '+c:'')+'">'+v+'</div><div class="n">'+n+'</div></div>';
-}
-
-function fmtWhen(t,withTime){
-  var d=new Date(t);
-  return withTime?d.toLocaleString(undefined,{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}):
-    d.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
-}
-
-function historyRangeToggle(cur){
-  return '<div class="hc-range">'+Object.keys(HIST_RANGES).map(function(k){
-    return '<button type="button" class="rangeBtn'+(k===cur?' on':'')+'" data-range="'+k+'">'+HIST_RANGES[k].label+'</button>';
-  }).join('')+'</div>';
-}
-
-function currentSnapshot(){
-  var livePrice=solSpot.price!=null?usd(solSpot.price,2):usd(SNAPSHOT.currentSolValue/SNAPSHOT.currentSol,2);
-  var liveNote=solSpot.price!=null
-    ? 'Live SOL/USD · '+(solSpot.change24!=null?(solSpot.change24>=0?'+':'')+solSpot.change24.toFixed(1)+'% 24h':'24h change unavailable')
-    : 'Screenshot baseline · '+esc(SNAPSHOT.asOf);
-
-  var remaining=SNAPSHOT.currentSol/SNAPSHOT.originalSol*100;
-  var soldPct=SNAPSHOT.soldSol/SNAPSHOT.originalSol*100;
-  return '<div class="card">'+
-    '<div class="snapshot-grid">'+
-      '<div class="snap good"><div class="k">SOL spot</div><div class="v">'+livePrice+'</div><div class="n">'+liveNote+'</div></div>'+
-      '<div class="snap"><div class="k">Current SOL</div><div class="v">'+num(SNAPSHOT.currentSol,2)+' SOL</div><div class="n">'+remaining.toFixed(1)+'% of original '+num(SNAPSHOT.originalSol,2)+' SOL</div></div>'+
-      '<div class="snap"><div class="k">Stablecoins</div><div class="v">'+usd(SNAPSHOT.stablecoins,0)+'</div><div class="n">Screenshot baseline</div></div>'+
-      '<div class="snap"><div class="k">Visible total</div><div class="v">'+usd(SNAPSHOT.visibleTotal,0)+'</div><div class="n">SOL + stablecoins</div></div>'+
-      '<div class="snap warn"><div class="k">Sep 25 SOL sale</div><div class="v">−'+num(SNAPSHOT.soldSol,4)+' SOL</div><div class="n">→ '+usd(SNAPSHOT.saleUsdc,0)+' USDC @ ~$'+SNAPSHOT.salePrice.toFixed(2)+'/SOL · '+soldPct.toFixed(1)+'% of original</div></div>'+
-      '<div class="snap crit"><div class="k">YU historical loss</div><div class="v">'+sgn(SNAPSHOT.yuLoss)+'</div><div class="n">'+num(SNAPSHOT.yuBurned,6)+' YU burned · redemption is not counted as received</div></div>'+
-    '</div>'+
-    '<div class="snapshot-note"><b>Snapshot context:</b> current position figures are a dated baseline from your Sep 27 Kamino screenshot; the page still reads live Kamino values on every reload. The YU figure is a historical loss marker from the DeFi export, not a current Kamino Lend position.</div>'+
-  '</div>';
-}
-
-function historyChart(){
-  var range=HIST_RANGES[cfg.histRange]?cfg.histRange:'7d';
-  var days=HIST_RANGES[range].days;
-  var cutoff=days?Date.now()-days*86400000:0;
-  var all=valueHist;
-  var pts=cutoff?all.filter(function(p){return p.t>=cutoff;}):all;
-  var toggle=historyRangeToggle(range);
-  if(all.length<2){
-    return '<div class="card">'+toggle+'<p class="lede" style="margin:14px 0 0">Tracking starts now — this chart fills in from your book value each time you load this page, stored only in this browser. Reload once more in a minute to see it grow.</p></div>';
-  }
-  if(pts.length<2){
-    return '<div class="card">'+toggle+'<p class="lede" style="margin:14px 0 0">No readings in the last '+esc(HIST_RANGES[range].label)+' — try a wider range.</p></div>';
-  }
-  var axisWithTime=(pts[pts.length-1].t-pts[0].t)<2*86400000;
-  var hasCost=pts.some(function(p){return p.cost!=null;});
-  var W=760,H=220,padL=54,padR=10,padT=14,padB=8;
-  var vw=W-padL-padR, vh=H-padT-padB;
-  var vals=pts.map(function(p){return p.total;});
-  if(hasCost)pts.forEach(function(p){if(p.cost!=null)vals.push(p.cost);});
-  var maxV=Math.max.apply(null,vals), minV=Math.min(0,Math.min.apply(null,vals));
-  var span=(maxV-minV)||1;
-  function px(i){ return pts.length===1?padL:padL+i/(pts.length-1)*vw; }
-  function py(v){ return padT+vh-(v-minV)/span*vh; }
-  var totalPts=pts.map(function(p,i){return [px(i),py(p.total)];});
-  var totalPath='M'+totalPts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1);}).join('L');
-  var areaPath=totalPath+'L'+px(pts.length-1).toFixed(1)+','+(padT+vh)+'L'+px(0).toFixed(1)+','+(padT+vh)+'Z';
-  var costPath='',penUp=true;
-  if(hasCost){
-    pts.forEach(function(p,i){
-      if(p.cost==null){penUp=true;return;}
-      costPath+=(penUp?'M':'L')+px(i).toFixed(1)+','+py(p.cost).toFixed(1);
-      penUp=false;
-    });
-  }
-  var ticks=4,gridlines='',ylabels='';
-  for(var i=0;i<=ticks;i++){
-    var v=minV+span*i/ticks, yy=py(v);
-    gridlines+='<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+yy.toFixed(1)+'" y2="'+yy.toFixed(1)+'" style="stroke:var(--border);stroke-width:1"/>';
-    ylabels+='<text x="'+(padL-8)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" class="hc-axis">'+esc(usd(v,0))+'</text>';
-  }
-  var hits=pts.map(function(p,i){
-    var tip=fmtWhen(p.t,true)+' · '+usd(p.total,0)+(p.cost!=null?' · cost '+usd(p.cost,0):'');
-    return '<circle class="hc-hit" cx="'+px(i).toFixed(1)+'" cy="'+py(p.total).toFixed(1)+'" r="10" data-tip="'+esc(tip)+'"></circle>';
-  }).join('');
-  var last=totalPts[totalPts.length-1];
-  var endLabel='<circle cx="'+last[0].toFixed(1)+'" cy="'+last[1].toFixed(1)+'" r="4" style="fill:var(--accent);stroke:var(--surface);stroke-width:2"></circle>'+
-    '<text x="'+Math.min(last[0]+8,W-padR-4).toFixed(1)+'" y="'+Math.max(last[1]-8,padT+10).toFixed(1)+'" text-anchor="'+(last[0]>W-padR-70?'end':'start')+'" class="hc-val">'+esc(usd(pts[pts.length-1].total,0))+'</text>';
-  var legend=hasCost?'<ul class="legend" style="margin:0"><li><span class="sw" style="background:var(--accent)"></span>Book value</li><li><span class="sw" style="background:var(--ink-3)"></span>Cost deployed</li></ul>':'<span></span>';
-  var svg='<svg viewBox="0 0 '+W+' '+H+'" class="hc-svg" preserveAspectRatio="none" role="img" aria-label="Book value over time">'+
-    gridlines+
-    (hasCost?'<path d="'+costPath+'" fill="none" style="stroke:var(--ink-3);stroke-width:2;stroke-dasharray:4 3" stroke-linecap="round"/>':'')+
-    '<path d="'+areaPath+'" style="fill:var(--accent);opacity:.1" stroke="none"/>'+
-    '<path d="'+totalPath+'" fill="none" style="stroke:var(--accent);stroke-width:2" stroke-linejoin="round" stroke-linecap="round"/>'+
-    ylabels+endLabel+
-    '<g>'+hits+'</g>'+
-  '</svg>';
-  return '<div class="card"><div class="hc-head">'+legend+toggle+'</div><div class="hc-wrap">'+svg+'</div>'+
-    '<div class="dv-ax"><span>'+esc(fmtWhen(pts[0].t,axisWithTime))+'</span><span>'+esc(fmtWhen(pts[pts.length-1].t,axisWithTime))+'</span></div></div>';
 }
 
 function waterfall(m){
@@ -1024,10 +834,6 @@ function render(m,meta){
     tile('Daily income','~'+usd(m.daily,0),'at the yields showing right now')+
     tile('Venues',(kam.length?1:0)+(bee.length?1:0)+' / 2',kam.length+' Kamino · '+bee.length+' Beefy')+
   '</div>';
-
-  html+=section('Book value over time',valueHist.length+' reading'+(valueHist.length===1?'':'s'),
-    'A reading is taken from this browser each time the page loads (at most one a minute) and kept only here.',
-    historyChart());
   html+=section('The netting','Where the book actually stands',
     m.haveBasis?'Looked at one wallet at a time each venue tells its own story. Looked at together, this is the bridge from zero to your actual net position.':'',
     waterfall(m));
@@ -1040,7 +846,7 @@ function render(m,meta){
   html+='<footer>'+
     '<p><b>Live, not a snapshot.</b> Kamino positions come from api.kamino.finance; Beefy positions are read from the vault contracts on BNB Chain through a public RPC node, with prices from api.beefy.finance. Nothing is cached — a reload re-reads everything.</p>'+
     '<p><b>What is stored, and where.</b> Your two addresses and your cost basis live in this browser’s local storage only. They are not in the repository this page is served from, and this page has no backend to send them to.</p>'+
-    '<p><b>Limits.</b> Cost basis is what you typed, so gains are only as right as that. Beefy’s hold-versus-LP comparison is not available from a public endpoint and is not shown. Yields are annualized rates that move constantly, not a forecast.</p>'+
+    '<p><b>Limits.</b> The page uses current Kamino portfolio rows only; exited positions are not displayed. Cost basis is what you typed, so gains are only as right as that. Beefy’s hold-versus-LP comparison is not available from a public endpoint and is not shown. Yields are annualized rates that move constantly, not a forecast.</p>'+
     '<p><b>Not advice.</b> This is a read of position data — not investment advice, and blind to your tax position, time horizon and everything outside these two wallets.</p>'+
   '</footer>';
 
@@ -1050,9 +856,6 @@ function render(m,meta){
   document.getElementById('curSel').onchange=function(e){
     cfg.currency=e.target.value; saveCfg(cfg); render(lastM,lastMeta);
   };
-  document.querySelectorAll('.rangeBtn').forEach(function(btn){
-    btn.onclick=function(){ cfg.histRange=btn.getAttribute('data-range'); saveCfg(cfg); render(lastM,lastMeta); };
-  });
   wireTips();
 }
 
@@ -1082,13 +885,10 @@ function openSettings(m){
     '<div class="field"><label>Extra Kamino vault addresses (one per line)</label><textarea id="c_extra" style="min-height:70px">'+esc((cfg.extraKamino||[]).map(function(v){return typeof v==='string'?v:v.addr;}).join('\n'))+'</textarea></div>'+
     '<div class="field"><label>Cost basis (USD, regardless of display currency)</label><div class="basis-grid">'+rows+'</div></div>'+
     '<div class="field"><label>Backup / restore (JSON)</label><textarea id="c_json">'+esc(JSON.stringify({sol:cfg.sol,bnb:cfg.bnb,basis:cfg.basis,extraKamino:cfg.extraKamino},null,1))+'</textarea></div>'+
-    '<div class="bar"><button type="button" id="c_derive">Estimate Kamino cost basis</button></div>'+
-    '<p class="muted" id="c_status">Reads your Kamino deposit history and fills the fields above. '+
-      'Beefy cannot be derived — its own indexer is unreachable from a browser and public BNB Chain nodes refuse historical queries, so those stay manual.</p>'+
+    '<p class="muted">Cost basis is manual and applies only to positions currently returned by Kamino. No historical position data is used to populate this page.</p>'+
     '<div class="bar"><button class="primary" id="c_save" value="save">Save &amp; reload</button>'+
     '<button id="c_close" value="cancel">Cancel</button>'+
     '<button id="c_rescan" value="rescan">Rescan Beefy vaults</button>'+
-    '<button id="c_clearhist" value="clearhist">Clear value history</button>'+
     '<button id="c_wipe" value="wipe">Forget everything</button></div>';
   dlg.showModal();
   f.querySelector('#c_save').onclick=function(){
@@ -1106,37 +906,8 @@ function openSettings(m){
       if(v===''){delete cfg.basis[id];} else if(isFinite(Number(v))){cfg.basis[id]=Number(v);} }); }
     saveCfg(cfg); setTimeout(function(){run(true);},0);
   };
-  f.querySelector('#c_derive').onclick=async function(){
-    var st=f.querySelector('#c_status');
-    if(!cfg.sol){ st.textContent='Add your Solana address first \u2014 there is nothing to read without it.'; return; }
-    st.textContent='Reading Kamino cost basis\u2026';
-    var out;
-    try{ out=await deriveKaminoBasis(cfg.sol,kaminoRegistry(),function(i,n,name){
-      st.textContent='Reading '+(i+1)+' of '+n+' \u2014 '+name; }); }
-    catch(e){ st.textContent='Could not read it: '+String(e.message||e); return; }
-    var exact=0,est=0,warn=[],changed=[];
-    Object.keys(out).forEach(function(id){
-      var r=out[id]; if(!r||!(r.cost>0))return;
-      var inp=f.querySelector('[data-id="'+id+'"]');
-      if(!inp)return;
-      var was=Number(String(inp.value).replace(/[$,\s]/g,''));
-      var now=Math.round(r.cost);
-      if(isFinite(was)&&was>0&&Math.abs(now-was)/was>0.1)changed.push(r.name+': '+usd(was,0)+' \u2192 '+usd(now,0));
-      inp.value=now;
-      if(r.method==='kamino')exact++; else { est++; if(r.openingBalance)warn.push(r.name); }
-    });
-    if(!exact&&!est){ st.textContent='Nothing came back \u2014 no Kamino history for this wallet.'; return; }
-    var msg='Filled <b>'+(exact+est)+'</b> position'+((exact+est)===1?'':'s')+'. ';
-    if(exact)msg+=exact+' from Kamino\u2019s own deposit accounting. ';
-    if(est)msg+=est+' rebuilt from daily balance history, because Kamino reports no basis for '+(est===1?'it':'them')+'. ';
-    if(warn.length)msg+='<br>Treat '+esc(warn.join(', '))+' as approximate: the history opens with a balance already in place, so the first deposit is priced on the day the record starts rather than the day you actually bought. ';
-    if(changed.length)msg+='<br><b>Moved by more than 10% from what you had:</b> '+esc(changed.join(' \u00b7 '))+'. Kamino\u2019s reported basis is not always stable, so keep your own figure if you trust it more. ';
-    msg+='<br>Edit anything that looks wrong, then Save &amp; reload.';
-    st.innerHTML=msg;
-  };
   f.querySelector('#c_rescan').onclick=function(){cfg.beefyIds=null;saveCfg(cfg);setTimeout(function(){run(true);},0);};
-  f.querySelector('#c_clearhist').onclick=function(){ try{localStorage.removeItem(HIST_KEY);}catch(e){} valueHist=[]; setTimeout(function(){run(true);},0); };
-  f.querySelector('#c_wipe').onclick=function(){ try{localStorage.removeItem(CFG_KEY);localStorage.removeItem(HIST_KEY);localStorage.removeItem(FX_KEY);}catch(e){} cfg={sol:'',bnb:'',basis:{},extraKamino:[],beefyIds:null,currency:'USD'}; valueHist=[]; fxRates={EUR:null,ZAR:null,when:null,error:null}; setTimeout(function(){renderSetup();},0); };
+  f.querySelector('#c_wipe').onclick=function(){ try{localStorage.removeItem(CFG_KEY);localStorage.removeItem(FX_KEY);}catch(e){} cfg={sol:'',bnb:'',basis:{},extraKamino:[],beefyIds:null,currency:'USD'}; fxRates={EUR:null,ZAR:null,when:null,error:null}; setTimeout(function(){renderSetup();},0); };
 }
 
 /* ---------------- boot ---------------- */
@@ -1153,7 +924,6 @@ async function run(){
     app.innerHTML='<div class="setup"><h2>Nothing came back</h2><p class="lede">Both reads failed: '+esc(m.errs.map(function(e){return e.error;}).join('; '))+'</p><div class="bar"><button class="primary" id="again">Try again</button></div></div>';
     document.getElementById('again').onclick=function(){run(true);}; return;
   }
-  recordSnapshot(m);
   render(m,{when:new Date().toLocaleString(undefined,{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})});
 }
 window.addEventListener('DOMContentLoaded',function(){run();});
